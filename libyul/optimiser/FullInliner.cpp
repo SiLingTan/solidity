@@ -24,6 +24,7 @@
 #include <libyul/optimiser/ASTWalker.h>
 #include <libyul/optimiser/NameCollector.h>
 #include <libyul/optimiser/Utilities.h>
+#include <libyul/optimiser/Metrics.h>
 #include <libyul/Exceptions.h>
 
 #include <libsolidity/inlineasm/AsmData.h>
@@ -45,12 +46,17 @@ FullInliner::FullInliner(Block& _ast):
 	assertThrow(m_ast.statements.front().type() == typeid(Block), OptimizerException, "");
 	m_nameDispenser.m_usedNames = NameCollector(m_ast).names();
 
+	map<string, size_t> references = ReferencesCounter::countReferences(m_ast);
+
 	for (size_t i = 1; i < m_ast.statements.size(); ++i)
 	{
 		assertThrow(m_ast.statements.at(i).type() == typeid(FunctionDefinition), OptimizerException, "");
 		FunctionDefinition& fun = boost::get<FunctionDefinition>(m_ast.statements.at(i));
 		m_functions[fun.name] = &fun;
 		m_functionsToVisit.insert(&fun);
+		// Always inline functions that are only called once.
+		if (references[fun.name] == 1)
+			m_alwaysInline.insert(fun.name);
 	}
 }
 
@@ -76,6 +82,42 @@ void FullInliner::handleBlock(string const& _currentFunctionName, Block& _block)
 {
 	InlineModifier{*this, m_nameDispenser, _currentFunctionName}(_block);
 }
+
+bool FullInliner::shallInline(FunctionCall const& _funCall, string const& _callSite)
+{
+	if (_funCall.functionName.name == _callSite)
+		return false;
+
+	// TODO optimize the computation of these metrics.
+	// Note that most metrics change through an inlining operation, so it could be a little
+	// tricky.
+	// Another way would be to first compute all metrics, then decide where to inline,
+	// perform all inlinig operations and then run again. This also changes the
+	// metrics while we go but might still be easier.
+
+	FunctionDefinition& calledFunction = function(_funCall.functionName.name);
+
+	if (m_alwaysInline.count(calledFunction.name))
+		return true;
+
+	// If the function is only referenced once, always inline it.
+	if (ReferencesCounter::countReferences(m_ast)[calledFunction.name] <= 1)
+		return true;
+
+	// Constant arguments might provide a means for further optimization, so they cause a bonus.
+	// TODO this is impossible to determine now, since all arguments are variables!
+	bool constantArg = false;
+	for (auto const& argument: _funCall.arguments)
+		if (argument.type() == typeid(Literal))
+		{
+			constantArg = true;
+			break;
+		}
+
+	size_t size = CodeSize::codeSize(calledFunction);
+	return (size < 10 || (constantArg && size < 50));
+}
+
 
 void InlineModifier::operator()(Block& _block)
 {
@@ -105,10 +147,7 @@ boost::optional<vector<Statement>> InlineModifier::tryInlineStatement(Statement&
 			FunctionDefinition& fun = m_driver.function(funCall->functionName.name);
 			m_driver.handleFunction(fun);
 
-			// TODO: Insert good heuristic here. Perhaps implement that inside the driver.
-			bool doInline = funCall->functionName.name != m_currentFunction;
-
-			if (doInline)
+			if (m_driver.shallInline(*funCall, m_currentFunction))
 				return performInline(_statement, *funCall, fun);
 		}
 	}

@@ -78,6 +78,10 @@ public:
 	/// Perform inlining operations inside the given function.
 	void handleFunction(FunctionDefinition& _function);
 
+	/// Inlining heuristic.
+	/// @param _callSite the name of the function in which the function call is located.
+	bool shallInline(FunctionCall const& _funCall, std::string const& _callSite);
+
 	FunctionDefinition& function(std::string _name) { return *m_functions.at(_name); }
 
 private:
@@ -88,6 +92,8 @@ private:
 	Block& m_ast;
 	std::map<std::string, FunctionDefinition*> m_functions;
 	std::set<FunctionDefinition*> m_functionsToVisit;
+	/// Names of functions to always inline.
+	std::set<std::string> m_alwaysInline;
 	NameDispenser m_nameDispenser;
 };
 

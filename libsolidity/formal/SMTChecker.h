@@ -20,14 +20,14 @@
 
 #include <libsolidity/formal/SolverInterface.h>
 
-#include <libsolidity/formal/SSAVariable.h>
-#include <libsolidity/formal/SpecialVariables.h>
+#include <libsolidity/formal/SymbolicVariable.h>
 
 #include <libsolidity/ast/ASTVisitor.h>
 
 #include <libsolidity/interface/ReadFile.h>
 
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -68,9 +68,6 @@ private:
 	virtual void endVisit(FunctionCall const& _node) override;
 	virtual void endVisit(Identifier const& _node) override;
 	virtual void endVisit(Literal const& _node) override;
-	virtual bool visit(MemberAccess const& _node) override;
-
-	void visitMagic(MemberAccess const& _memberAccess);
 
 	void arithmeticOperation(BinaryOperation const& _op);
 	void compareOperation(BinaryOperation const& _op);
@@ -83,14 +80,10 @@ private:
 	void assignment(VariableDeclaration const& _variable, Expression const& _value, SourceLocation const& _location);
 	void assignment(VariableDeclaration const& _variable, smt::Expression const& _value, SourceLocation const& _location);
 
-	/// Maps a variable to an SSA index.
-	using VariableSequenceCounters = std::map<VariableDeclaration const*, SSAVariable>;
-
 	/// Visits the branch given by the statement, pushes and pops the current path conditions.
 	/// @param _condition if present, asserts that this condition is true within the branch.
-	/// @returns the variable sequence counter after visiting the branch.
-	VariableSequenceCounters visitBranch(Statement const& _statement, smt::Expression const* _condition = nullptr);
-	VariableSequenceCounters visitBranch(Statement const& _statement, smt::Expression _condition);
+	void visitBranch(Statement const& _statement, smt::Expression const* _condition = nullptr);
+	void visitBranch(Statement const& _statement, smt::Expression _condition);
 
 	/// Check that a condition can be satisfied.
 	void checkCondition(
@@ -119,6 +112,10 @@ private:
 	void initializeLocalVariables(FunctionDefinition const& _function);
 	void resetStateVariables();
 	void resetVariables(std::vector<VariableDeclaration const*> _variables);
+
+	/// Maps a variable to an SSA index.
+	using VariableSequenceCounters = std::unordered_map<VariableDeclaration const*, int>;
+
 	/// Given two different branches and the touched variables,
 	/// merge the touched variables into after-branch ite variables
 	/// using the branch condition as guard.
@@ -168,17 +165,19 @@ private:
 	/// Removes the local variables of a function.
 	void removeLocalVariables();
 
+	/// Copy the SSA indices of m_variables.
+	VariableSequenceCounters copyVariableSequenceCounters();
+	
+
 	std::shared_ptr<smt::SolverInterface> m_interface;
 	std::shared_ptr<VariableUsage> m_variableUsage;
 	bool m_loopExecutionHappened = false;
-	std::map<Expression const*, smt::Expression> m_expressions;
-	std::map<VariableDeclaration const*, SSAVariable> m_variables;
+	std::unordered_map<Expression const*, smt::Expression> m_expressions;
+	std::unordered_map<VariableDeclaration const*, std::shared_ptr<SymbolicVariable>> m_variables;
 	std::vector<smt::Expression> m_pathConditions;
 	ErrorReporter& m_errorReporter;
 
 	FunctionDefinition const* m_currentFunction = nullptr;
-	/// Symbolic version of special variables.
-	SpecialVariables m_specialVariables;
 };
 
 }

@@ -30,7 +30,8 @@ SymbolicVariable::SymbolicVariable(
 ):
 	m_type(_type),
 	m_uniqueName(_uniqueName),
-	m_interface(_interface)
+	m_interface(_interface),
+	m_ssa(make_shared<SSAVariable>())
 {
 }
 
